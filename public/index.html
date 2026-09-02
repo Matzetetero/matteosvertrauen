@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scoreboard & Glücksrad</title>
+    <!-- Socket.IO Client Skript (wird vom Server bereitgestellt) -->
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --bg-color: #f4f4f6;
+            --card-bg: #ffffff;
+            --text-color: #1f1f23;
+            --text-secondary: #6b6b76;
+            --accent: #4f46e5;
+            --accent-hover: #4338ca;
+            --danger: #dc2626;
+            --success: #16a34a;
+            --border-color: #e4e4e7;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 2rem 1rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 650px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: -0.025em;
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .btn-rewards, .btn-auth {
+            background-color: #e0e7ff;
+            color: var(--accent);
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-rewards:hover, .btn-auth:hover { background-color: #c7d2fe; }
+        .btn-auth.logged-in { background-color: #fee2e2; color: var(--danger); }
+        .btn-auth.logged-in:hover { background-color: #fecaca; }
+
+        /* Glücksrad Bereich */
+        .wheel-section {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .wheel-container {
+            position: relative;
+            width: 220px;
+            height: 220px;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .wheel-pointer {
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-top: 15px solid var(--danger);
+            z-index: 10;
+        }
+
+        .winner-display {
+            font-size: 1.1rem;
+            font-weight: 600;
+            min-height: 1.5rem;
+            color: var(--accent);
+            text-align: center;
+        }
+
+        .add-form { display: flex; gap: 0.5rem; }
+        .admin-only { display: none !important; }
+
+        input[type="text"], input[type="number"], input[type="password"] {
+            flex: 1;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus { border-color: var(--accent); }
+
+        button {
+            cursor: pointer;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            padding: 0.75rem 1.25rem;
+            font-size: 1rem;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+
+        button:active { transform: scale(0.97); }
+        .btn-primary { background-color: var(--accent); color: white; }
+        .btn-primary:hover { background-color: var(--accent-hover); }
+
+        /* Scoreboard */
+        .scoreboard-list { display: flex; flex-direction: column; gap: 0.75rem; }
+
+        .score-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 0.875rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .person-info { display: flex; flex-direction: column; gap: 0.125rem; }
+        .person-name { font-size: 1.05rem; font-weight: 600; }
+        .person-score { font-size: 1.35rem; font-weight: 700; color: var(--accent); }
+        .card-right { display: flex; align-items: center; gap: 0.75rem; }
+        .action-buttons { display: flex; gap: 0.5rem; }
+        .btn-score { padding: 0.5rem 0.75rem; font-size: 1rem; border-radius: 6px; }
+        .btn-plus { background-color: #dcfce7; color: var(--success); }
+        .btn-plus:hover { background-color: #bbf7d0; }
+        .btn-minus { background-color: #fee2e2; color: var(--danger); }
+        .btn-minus:hover { background-color: #fecaca; }
+        .btn-delete { background-color: transparent; color: var(--text-secondary); padding: 0.5rem; border-radius: 6px; }
+        .btn-delete:hover { background-color: #fee2e2; color: var(--danger); }
+
+        /* Modals */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.4);
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .modal-content h3 { margin: 0 0 0.5rem 0; }
+        .reward-item-view { display: flex; justify-content: space-between; padding: 0.50rem 0; border-bottom: 1px solid var(--border-color); }
+        .close-btn { background-color: #e4e4e7; color: var(--text-color); }
+        .close-btn:hover { background-color: #d4d4d8; }
+        .reward-edit-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .lock-banner { background-color: #fee2e2; color: var(--danger); padding: 0.75rem; border-radius: 8px; font-weight: 600; text-align: center; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>Scoreboard</h1>
+        <div class="header-buttons">
+            <button class="btn-rewards" onclick="openRewardsModal()">Belohnungen</button>
+            <button class="btn-auth" id="authBtn" onclick="toggleAuth()">Anmelden</button>
+        </div>
+    </header>
+    
+    <div class="lock-banner" id="lockBanner">Gesperrt! Bitte warten: <span id="lockTimer">10:00</span></div>
+
+    <div class="wheel-section">
+        <div class="wheel-container">
+            <div class="wheel-pointer"></div>
+            <canvas id="wheelCanvas" width="300" height="300"></canvas>
+        </div>
+        <div class="winner-display" id="winnerDisplay">Warte auf Drehung...</div>
+        <button class="btn-primary admin-only" onclick="requestSpin()" id="spinBtn">Rad drehen (+1 Punkt)</button>
+    </div>
+
+    <div class="add-form admin-only" id="addFormContainer">
+        <input type="text" id="newName" placeholder="Neue Person hinzufügen...">
+        <button class="btn-primary" onclick="addPerson()">Hinzufügen</button>
+    </div>
+
+    <div class="scoreboard-list" id="scoreboardList"></div>
+</div>
+
+<!-- Modals -->
+<div class="modal" id="loginModal">
+    <div class="modal-content">
+        <h3>Admin-Anmeldung</h3>
+        <input type="password" id="loginPinInput" placeholder="4-stellige PIN" maxlength="4">
+        <div style="display: flex; gap: 0.5rem;">
+            <button class="btn-primary" style="flex:1;" onclick="verifyLoginPin()">Anmelden</button>
+            <button class="close-btn" style="flex:1;" onclick="closeLoginModal()">Abbrechen</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="rewardsModal">
+    <div class="modal-content">
+        <h3>Belohnungen</h3>
+        <div id="rewardsListContainer"></div>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+            <button class="btn-primary admin-only" style="flex:1;" id="editRewardsBtnModal" onclick="openEditModal()">Bearbeiten</button>
+            <button class="close-btn" style="flex:1;" onclick="closeRewardsModal()">Schließen</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="editRewardsModal">
+    <div class="modal-content">
+        <h3>Belohnungen bearbeiten</h3>
+        <div id="editRewardsContainer"></div>
+        <button class="btn-primary" onclick="saveRewards()">Speichern</button>
+        <button class="close-btn" onclick="closeEditModal()">Abbrechen</button>
+    </div>
+</div>
+
+<script>
+    // Initialisiere Socket.IO (verbindet sich automatisch mit dem Backend)
+    const socket = io();
+
+    let people = [];
+    let rewards = [];
+    let isAdmin = false;
+    let currentAngle = 0;
+    let isSpinning = false;
+
+    // Lokale Sperr-Logik (UI Blockade)
+    let failedAttempts = parseInt(localStorage.getItem('scoreboard_failed_attempts')) || 0;
+    let lockoutUntil = parseInt(localStorage.getItem('scoreboard_lockout_until')) || 0;
+
+    function updateLockoutStorage() {
+        localStorage.setItem('scoreboard_failed_attempts', failedAttempts);
+        localStorage.setItem('scoreboard_lockout_until', lockoutUntil);
+    }
+
+    function checkLockout() {
+        const now = Date.now();
+        const banner = document.getElementById('lockBanner');
+        if (lockoutUntil > now) {
+            banner.style.display = 'block';
+            return true;
+        } else {
+            if (lockoutUntil !== 0) {
+                failedAttempts = 0;
+                lockoutUntil = 0;
+                updateLockoutStorage();
+            }
+            banner.style.display = 'none';
+            return false;
+        }
+    }
+
+    setInterval(() => {
+        const now = Date.now();
+        if (lockoutUntil > now) {
+            const diff = Math.ceil((lockoutUntil - now) / 1000);
+            const minutes = Math.floor(diff / 60);
+            const seconds = diff % 60;
+            document.getElementById('lockTimer').innerText = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+            document.getElementById('lockBanner').style.display = 'block';
+        } else {
+            checkLockout();
+        }
+    }, 1000);
+
+    // ==========================================
+    // SOCKET.IO EVENTS (Live Updates empfangen)
+    // ==========================================
+
+    // Wenn der Server neue Daten schickt (Scoreboard Änderungen)
+    socket.on('updateState', (dbData) => {
+        people = dbData.people;
+        rewards = dbData.rewards;
+        render();
+    });
+
+    // Login Rückmeldungen vom Server
+    socket.on('loginSuccess', () => {
+        failedAttempts = 0;
+        updateLockoutStorage();
+        isAdmin = true;
+        closeLoginModal();
+        render();
+        alert("Erfolgreich angemeldet!");
+    });
+
+    socket.on('loginFailed', () => {
+        failedAttempts++;
+        updateLockoutStorage();
+        if (failedAttempts >= 3) {
+            lockoutUntil = Date.now() + 10 * 60 * 1000; // 10 Minuten
+            updateLockoutStorage();
+            closeLoginModal();
+            checkLockout();
+            alert("3x falscher PIN! Für 10 Minuten gesperrt.");
+        } else {
+            alert(`Falscher PIN! Noch ${3 - failedAttempts} Versuch(e).`);
+        }
+    });
+
+    // Wenn der Server das Rad dreht (Start für alle!)
+    socket.on('startSpin', ({ spinAngle, duration }) => {
+        isSpinning = true;
+        document.getElementById('winnerDisplay').innerText = "Das Rad dreht sich...";
+        
+        const startTimestamp = performance.now();
+        
+        function animateSpin(currentTime) {
+            const elapsed = currentTime - startTimestamp;
+            const progress = Math.min(elapsed / duration, 1);
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+            
+            currentAngle = (spinAngle * easeProgress * Math.PI) / 180;
+            drawWheel();
+
+            if (progress < 1) {
+                requestAnimationFrame(animateSpin);
+            } else {
+                isSpinning = false;
+            }
+        }
+        requestAnimationFrame(animateSpin);
+    });
+
+    // Wenn das Rad stoppt und der Server den Gewinner verkündet
+    socket.on('spinResult', (winnerName) => {
+        document.getElementById('winnerDisplay').innerText = `Gewinner: ${winnerName} (+1 Punkt)! 🎉`;
+    });
+
+    // ==========================================
+    // AKTIONEN AUSFÜHREN (Daten an Server senden)
+    // ==========================================
+
+    function toggleAuth() {
+        if (isAdmin) {
+            isAdmin = false;
+            render();
+            alert("Erfolgreich abgemeldet!");
+        } else {
+            if (checkLockout()) {
+                alert("Das System ist wegen zu vielen Fehlversuchen gesperrt!");
+                return;
+            }
+            document.getElementById('loginPinInput').value = "";
+            document.getElementById('loginModal').style.display = "flex";
+        }
+    }
+
+    function verifyLoginPin() {
+        const pin = document.getElementById('loginPinInput').value;
+        socket.emit('login', pin); // Pin zur sicheren Prüfung ans Backend senden
+    }
+
+    function changeScore(index, delta) {
+        if (!isAdmin) return;
+        socket.emit('changeScore', { index, delta });
+    }
+
+    function addPerson() {
+        if (!isAdmin) return;
+        const input = document.getElementById("newName");
+        const name = input.value.trim();
+        if (name !== "") {
+            socket.emit('addPerson', name);
+            input.value = "";
+        }
+    }
+
+    function deletePerson(index) {
+        if (!isAdmin) return;
+        if (confirm(`Möchtest du ${people[index].name} wirklich löschen?`)) {
+            socket.emit('deletePerson', index);
+        }
+    }
+
+    function saveRewards() {
+        if (!isAdmin) return;
+        let newRewards = [];
+        rewards.forEach((r, i) => {
+            const p = parseInt(document.getElementById(`editP_${i}`).value);
+            const t = document.getElementById(`editT_${i}`).value;
+            if (!isNaN(p) && t.trim() !== "") {
+                newRewards.push({ points: p, text: t.trim() });
+            }
+        });
+        socket.emit('saveRewards', newRewards);
+        closeEditModal();
+    }
+
+    function requestSpin() {
+        if (!isAdmin || isSpinning || people.length === 0) return;
+        socket.emit('spinWheel');
+    }
+
+    // ==========================================
+    // UI RENDERING
+    // ==========================================
+
+    const canvas = document.getElementById('wheelCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function drawWheel() {
+        const numSegments = people.length;
+        if (numSegments === 0) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return;
+        }
+        const arcSize = (2 * Math.PI) / numSegments;
+        const radius = canvas.width / 2;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const colors = ['#6366f1', '#3b82f6', '#0ea5e9', '#14b8a6', '#10b981', '#84cc16', '#eab308', '#f97316', '#ef4444', '#ec4899'];
+
+        people.forEach((person, index) => {
+            const angle = currentAngle + index * arcSize;
+            ctx.beginPath();
+            ctx.fillStyle = colors[index % colors.length];
+            ctx.moveTo(radius, radius);
+            ctx.arc(radius, radius, radius, angle, angle + arcSize);
+            ctx.lineTo(radius, radius);
+            ctx.fill();
+
+            ctx.save();
+            ctx.translate(radius, radius);
+            ctx.rotate(angle + arcSize / 2);
+            ctx.textAlign = "right";
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 14px sans-serif";
+            ctx.fillText(person.name, radius - 15, 5);
+            ctx.restore();
+        });
+    }
+
+    function render() {
+        const list = document.getElementById("scoreboardList");
+        list.innerHTML = "";
+
+        // Sortieren nach Score (Kopie erstellen, um original Array nicht zu verändern)
+        const sortedPeople = [...people].map((person, originalIndex) => ({ ...person, originalIndex })).sort((a, b) => b.score - a.score);
+
+        sortedPeople.forEach((person) => {
+            const card = document.createElement("div");
+            card.className = "score-card";
+            card.innerHTML = `
+                <div class="person-info">
+                    <span class="person-name">${person.name}</span>
+                    <span class="person-score">${person.score}</span>
+                </div>
+                <div class="card-right">
+                    <div class="action-buttons ${isAdmin ? '' : 'admin-only'}">
+                        <button class="btn-score btn-minus" onclick="changeScore(${person.originalIndex}, -1)">-1</button>
+                        <button class="btn-score btn-plus" onclick="changeScore(${person.originalIndex}, 1)">+1</button>
+                    </div>
+                    <button class="btn-delete ${isAdmin ? '' : 'admin-only'}" onclick="deletePerson(${person.originalIndex})" title="Person löschen">🗑️</button>
+                </div>
+            `;
+            list.appendChild(card);
+        });
+
+        // UI-Elemente für Admin anpassen
+        const authBtn = document.getElementById('authBtn');
+        const addForm = document.getElementById('addFormContainer');
+        const spinBtn = document.getElementById('spinBtn');
+        
+        if (isAdmin) {
+            authBtn.innerText = "Abmelden";
+            authBtn.classList.add("logged-in");
+            addForm.classList.remove("admin-only");
+            spinBtn.classList.remove("admin-only");
+        } else {
+            authBtn.innerText = "Anmelden";
+            authBtn.classList.remove("logged-in");
+            addForm.classList.add("admin-only");
+            spinBtn.classList.add("admin-only");
+        }
+
+        drawWheel();
+        checkLockout();
+    }
+
+    // Modal Steuerungen (rein visuell)
+    function closeLoginModal() { document.getElementById('loginModal').style.display = "none"; }
+    
+    function openRewardsModal() {
+        const container = document.getElementById("rewardsListContainer");
+        container.innerHTML = "";
+        rewards.sort((a, b) => a.points - b.points).forEach(r => {
+            container.innerHTML += `
+                <div class="reward-item-view">
+                    <span><strong>${r.points} Punkte:</strong></span>
+                    <span>${r.text}</span>
+                </div>
+            `;
+        });
+        
+        const editBtnModal = document.getElementById("editRewardsBtnModal");
+        if (isAdmin) editBtnModal.classList.remove("admin-only");
+        else editBtnModal.classList.add("admin-only");
+
+        document.getElementById("rewardsModal").style.display = "flex";
+    }
+
+    function closeRewardsModal() { document.getElementById("rewardsModal").style.display = "none"; }
+
+    function openEditModal() {
+        if (!isAdmin) return;
+        closeRewardsModal();
+        const container = document.getElementById("editRewardsContainer");
+        container.innerHTML = "";
+        rewards.forEach((r, i) => {
+            container.innerHTML += `
+                <div class="reward-edit-row">
+                    <input type="number" id="editP_${i}" value="${r.points}" style="width: 80px;">
+                    <input type="text" id="editT_${i}" value="${r.text}">
+                </div>
+            `;
+        });
+        document.getElementById("editRewardsModal").style.display = "flex";
+    }
+
+    function closeEditModal() { document.getElementById("editRewardsModal").style.display = "none"; }
+
+    document.getElementById("newName").addEventListener("keypress", function(event) {
+        if (event.key === "Enter") addPerson();
+    });
+
+</script>
+</body>
+</html>
